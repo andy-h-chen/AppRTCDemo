@@ -323,7 +323,8 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
     // Create connection client. Use DirectRTCClient if room name is an IP otherwise use the
     // standard WebSocketRTCClient.
     if (loopback || !DirectRTCClient.IP_PATTERN.matcher(roomId).matches()) {
-      appRtcClient = new WebSocketRTCClient(this);
+      //appRtcClient = new WebSocketRTCClient(this);
+      appRtcClient = new SocketIORTCClient(roomId, this);
     } else {
       Log.i(TAG, "Using DirectRTCClient because room name looks like an IP.");
       appRtcClient = new DirectRTCClient(this);
@@ -334,8 +335,8 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
         new RoomConnectionParameters(roomUri.toString(), roomId, loopback, urlParameters);
 
     // Create CPU monitor
-    cpuMonitor = new CpuMonitor(this);
-    hudFragment.setCpuMonitor(cpuMonitor);
+    //cpuMonitor = new CpuMonitor(this);
+    //hudFragment.setCpuMonitor(cpuMonitor);
 
     // Send intent arguments to fragments.
     callFragment.setArguments(intent.getExtras());
@@ -473,7 +474,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
     if (peerConnectionClient != null && !screencaptureEnabled) {
       peerConnectionClient.stopVideoSource();
     }
-    cpuMonitor.pause();
+    //cpuMonitor.pause();
   }
 
   @Override
@@ -484,7 +485,7 @@ public class CallActivity extends Activity implements AppRTCClient.SignalingEven
     if (peerConnectionClient != null && !screencaptureEnabled) {
       peerConnectionClient.startVideoSource();
     }
-    cpuMonitor.resume();
+    //cpuMonitor.resume();
   }
 
   @Override
