@@ -1,6 +1,8 @@
 package org.appspot.apprtc;
 
-import android.app.Activity;
+import org.appspot.apprtc.util.AsyncHttpURLConnection;
+import org.appspot.apprtc.util.AsyncHttpURLConnection.AsyncHttpEvents;
+
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
@@ -15,7 +17,12 @@ import org.webrtc.SessionDescription;
 import java.net.URISyntaxException;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Random;
+
+import javax.crypto.SecretKey;
+
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 
 import io.socket.client.Ack;
 import io.socket.client.IO;
@@ -29,6 +36,9 @@ public class SocketIORTCClient implements AppRTCClient {
     private static LinkedList<PeerConnection.IceServer> ICE_SERVERS; // Hardcoded ICE servers, needs to get from signaling server
     private static final String MESSAGE_EVENT = "one-to-one-demo"; // Hardcoded channel type
     private static final String SOCKETIO_SERVER_URL = "https://wip.remocare.net";
+    private static final String GET_CRED_URL = "https://wip.remocare.net/getcredential?username=andy";
+    private static final String TURN_SERVER_URL = "turn:wip.remocare.net";
+    private static String JWS;
     private Socket mSocket;
     private final Handler handler;
     private final String mRoomId;
@@ -38,6 +48,7 @@ public class SocketIORTCClient implements AppRTCClient {
     private String mOtherUserId; // Assume the room only allows two participants
     private SessionDescription mSdp;
     private LinkedList<IceCandidate> mIceCandidates = new LinkedList<IceCandidate>();
+    private AsyncHttpURLConnection httpConnection;
     public static String randomAlphaNumeric(int count) {
         StringBuilder builder = new StringBuilder();
         while (count-- != 0) {
@@ -51,8 +62,6 @@ public class SocketIORTCClient implements AppRTCClient {
         handlerThread.start();
         mRoomId = roomId;
         mUserId = randomAlphaNumeric(USER_ID_LENGTH);
-        //String url = SOCKETIO_SERVER_URL + "/?msgEvent=" + MESSAGE_EVENT + "&userid=" + mUserId;
-        String url = "https://wip.remocare.net/?msgEvent=" + MESSAGE_EVENT + "&userid=" + mUserId;
         this.events = events;
         if (ICE_SERVERS == null) {
             ICE_SERVERS = new LinkedList<>();
@@ -61,6 +70,16 @@ public class SocketIORTCClient implements AppRTCClient {
             ICE_SERVERS.add(new PeerConnection.IceServer("stun:stun2.l.google.com:19302", "", ""));
             ICE_SERVERS.add(new PeerConnection.IceServer("stun:stun.l.google.com:19302?transport=udp", "", ""));
         }
+        if (JWS == null) {
+            try {
+                SecretKey key = Keys.hmacShaKeyFor("abcdefghijklmnopqrstuvwxyz1234567890".getBytes());
+                JWS = Jwts.builder().setSubject("Joe").signWith(key).compact();
+            } catch (Exception e) {
+                Log.d(TAG, e.getMessage());
+            }
+        }
+        String url = SOCKETIO_SERVER_URL + "/?msgEvent=" + MESSAGE_EVENT + "&userid=" + mUserId + "&token=" + JWS;
+        Log.d(TAG, " url = " + url);
         handler = new Handler(handlerThread.getLooper());
         {
             try {
@@ -357,12 +376,18 @@ public class SocketIORTCClient implements AppRTCClient {
         Log.d(TAG, "Leaving room.");
         mSocket.disconnect();
     }
-    /**
-     * Asynchronously connect to an AppRTC room URL using supplied connection
-     * parameters. Once connection is established onConnectedToRoom()
-     * callback with room parameters is invoked.
-     */
-    public void connectToRoom(RoomConnectionParameters connectionParameters) {
+
+    private void reportError(final String errorMessage) {
+        Log.e(TAG, errorMessage);
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                events.onChannelError(errorMessage);
+            }
+        });
+    }
+
+    private void connectToRoomInternal() {
         handler.post(new Runnable() {
             @Override
             public void run() {
@@ -377,6 +402,46 @@ public class SocketIORTCClient implements AppRTCClient {
                 }
             }
         });
+    }
+
+    private void roomHttpResponseParse(String response) {
+        Log.d(TAG, "Room response: " + response);
+        try {
+            JSONObject cred = new JSONObject(response);
+            if (cred.getString("username") !=null  && cred.getString("password") != null) {
+                PeerConnection.IceServer turnServer = ICE_SERVERS.getLast();
+                if (turnServer.uri.startsWith("turn:")) {
+                    ICE_SERVERS.removeLast();
+                }
+                ICE_SERVERS.addLast(new PeerConnection.IceServer(TURN_SERVER_URL, cred.getString("username"), cred.getString("password")));
+                connectToRoomInternal();
+            }
+        } catch (JSONException jse) {
+            Log.d(TAG, jse.toString());
+        }
+
+    }
+    /**
+     * Asynchronously connect to an AppRTC room URL using supplied connection
+     * parameters. Once connection is established onConnectedToRoom()
+     * callback with room parameters is invoked.
+     */
+    public void connectToRoom(RoomConnectionParameters connectionParameters) {
+        // TODO: add turn server secret key as part of request
+        httpConnection =
+                new AsyncHttpURLConnection("GET", GET_CRED_URL, null, new AsyncHttpEvents() {
+                    @Override
+                    public void onHttpError(String errorMessage) {
+                        Log.e(TAG, "Room connection error: " + errorMessage);
+                        reportError(errorMessage);
+                    }
+
+                    @Override
+                    public void onHttpComplete(String response) {
+                        roomHttpResponseParse(response);
+                    }
+                });
+        httpConnection.send();
     }
 
     /**

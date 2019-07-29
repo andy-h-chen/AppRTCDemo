@@ -41,4 +41,9 @@ dependencies {
   implementation ('io.socket:socket.io-client:0.8.3') {
     exclude group: 'org.json', module: 'json'
   }
+  api 'io.jsonwebtoken:jjwt-api:0.10.7'
+  runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.10.7'
+  runtimeOnly('io.jsonwebtoken:jjwt-orgjson:0.10.7') {
+    exclude group: 'org.json', module: 'json' //provided by Android natively
+  }
 }
